@@ -1,0 +1,20 @@
+[[source]]
+
+url = "https://pypi.python.org/simple"
+name = "pypi"
+verify_ssl = true
+
+
+[packages]
+
+opencv-python = "*"
+numpy = "*"
+
+
+[dev-packages]
+
+
+
+[requires]
+
+python_version = "3.5"
