@@ -9,6 +9,9 @@ verify_ssl = true
 
 opencv-python = "*"
 numpy = "*"
+filterpy = "*"
+numba = "*"
+scikit-learn = "*"
 
 
 [dev-packages]
