@@ -32,7 +32,8 @@ class KalmanPoseTracker(object):
     # Measurement function: numpy.array(dim_z, dim_x)
     self.kf.H = np.eye(dim_z, dim_x,)
     # Measurement uncertainty (sensor noise): numpy.array(dim_z, dim_z)
-    self.kf.R *= 10.
+    # NOTE: Reduced from 10 to 1 as it made our predictions lag behind our detections too much
+    self.kf.R *= 1.
 
     # Initial state: numpy.array(dim_x, 1)
     self.kf.x[:dim_z] = self.convert_to_kf_x_format(pose)
@@ -48,20 +49,27 @@ class KalmanPoseTracker(object):
     self.hit_streak = 0
     self.age = 0
     self.debug_dict = {}
+    # # NOTE: I am overriding our predictions by setting this huge K because when a limb dissapears
+    # #       the kalman filter interpolates between its position and (0, 0) and fucks my code up.
+    # self.kf.K += 10000
+
+    self.last_detection = pose
 
 
-  def update(self, bbox, debug_dict):
+  def update(self, pose, debug_dict, R=None, H=None):
     """
-    Updates the state vector with observed bbox.
+    Updates the state vector with observed pose.
     """
+    # pose[pose == 0] = np.nan
     self.time_since_update = 0
     self.history = []
     self.hits += 1
     self.hit_streak += 1
     # TODO Isn't there a better way to do this than just not updating it?
     # At least tell the filter that a time step happened?
-    if bbox is not None:
-      self.kf.update(self.convert_to_kf_x_format(bbox))
+    if pose is not None:
+      self.last_detection = pose
+      self.kf.update(self.convert_to_kf_x_format(pose), R, H)
       self.debug_dict.update(debug_dict)
 
 

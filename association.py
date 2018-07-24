@@ -16,56 +16,22 @@ import scipy
 from numba import jit
 from sklearn.utils.linear_assignment_ import linear_assignment
 
-MATCH_LIST = []
-NORM_EMB_DIST = 0.03
 
-@jit
+# @jit
 def pose_distance(detected_pose, predicted_pose):
-    # TODO insert code here
-    return 1
-
-@jit
-def iou(bb_test, bb_gt):
-    """
-    Computes IUO between two bboxes in the form [x1,y1,x2,y2]
-    """
-    xx1 = np.maximum(bb_test[0], bb_gt[0])
-    yy1 = np.maximum(bb_test[1], bb_gt[1])
-    xx2 = np.minimum(bb_test[2], bb_gt[2])
-    yy2 = np.minimum(bb_test[3], bb_gt[3])
-    w = np.maximum(0., xx2 - xx1)
-    h = np.maximum(0., yy2 - yy1)
-    wh = w * h
-    o = wh / ((bb_test[2]-bb_test[0])*(bb_test[3]-bb_test[1]) + (bb_gt[2]-bb_gt[0])*(bb_gt[3]-bb_gt[1]) - wh)  # noqa
-    return(o)
+    non_zero_indices = np.any(detected_pose > 0, axis=1) * np.any(predicted_pose > 0, axis=1)
+    dists = predicted_pose[non_zero_indices, :] - detected_pose[non_zero_indices, :]
+    abs_dists_per_point = np.sum(abs(dists), axis=1)
+    if not abs_dists_per_point.any() or np.sum(non_zero_indices) < 3:
+        return 1000  # Random large number
+    else:
+        # We use the median to protect ourselves from outliers caused by new limbs being detected
+        # for a person, which causes the kalman filter to make abrupt predicitons with high error.
+        return np.median(abs_dists_per_point)
 
 
-@jit
-def embedding_distance(detected_embedding, predicted_embedding, top_k_matching=100):
-    partition_edge = top_k_matching * -1
 
-    # First reduce each 7x7 embedding to a single scalar
-    detected_embedding_reduced = np.amax(detected_embedding, (0, 1))
-    predicted_embedding_reduced = np.amax(predicted_embedding, (0, 1))
-
-    # We use only the best matches to calculate distance
-    matching_scores = detected_embedding_reduced * predicted_embedding_reduced
-    best_k_matches = np.argpartition(matching_scores, partition_edge)[partition_edge:]
-
-    # Now reduce the similarities among all feat maps to a single score
-    return scipy.spatial.distance.cosine(
-        detected_embedding_reduced[best_k_matches], predicted_embedding_reduced[best_k_matches]
-    )
-
-
-@jit
-def normalize_embedding(embedding_dist, norm):
-        return max(
-            1 - (embedding_dist - NORM_EMB_DIST) / NORM_EMB_DIST, 0
-        )
-
-
-def associate_detections_to_trackers(detected_objects, predicted_objects, score_threshold=0.3):
+def associate_detections_to_trackers(detected_objects, predicted_objects, score_threshold):
     """
     Assigns detected objects to tracked objects (both represented as bounding boxes)
 
@@ -88,10 +54,7 @@ def associate_detections_to_trackers(detected_objects, predicted_objects, score_
 
     # Hungarian method
     # The linear assignment module tries to minimise the total assignment cost.
-    # In our case we pass -score_matrix as we want to maximise the total score between
-    # track predictions and the frame detection.
-    matched_indices = linear_assignment(-dist_matrix)
-
+    matched_indices = linear_assignment(dist_matrix)
     unmatched_detections = []
     for d, _ in enumerate(detected_objects):
         if d not in matched_indices[:, 0]:
@@ -104,7 +67,7 @@ def associate_detections_to_trackers(detected_objects, predicted_objects, score_
     # Filter out matched with low score
     matches = []
     for m in matched_indices:
-        if dist_matrix[m[0], m[1]] < score_threshold:
+        if dist_matrix[m[0], m[1]] > score_threshold:
             unmatched_detections.append(m[0])
             unmatched_trackers.append(m[1])
         else:

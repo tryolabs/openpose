@@ -6,7 +6,7 @@ from association import associate_detections_to_trackers
 
 class PoseTracker:
 
-    def __init__(self, tracked_points_num, max_age=30, min_hits=15, score_threshold=0.3):
+    def __init__(self, tracked_points_num, score_threshold, max_age=30, min_hits=10):
         self.tracked_points_num = tracked_points_num 
         self.max_age = max_age
         self.min_hits = min_hits
@@ -54,15 +54,23 @@ class PoseTracker:
             for t, tracker in enumerate(self.trackers):
                 if t not in unmatched_trks:
                     matched_det_idx = matched[np.where(matched[:, 1] == t)[0], 0]
-                    trk_matched_bbox = detected_objects[matched_det_idx]
-                    # trk_matched_bbox, trk_matched_embedding = [
-                    #     (detected_objects[idx]['pose'], detected_objects[idx]['feat'])
-                    #     for idx in matched_det_idx
-                    # ][0]
+                    trk_matched_bbox = detected_objects[matched_det_idx][0]
+                    trk_debug_dict = {'dist': dist_matrix[matched_det_idx, t][0]}
+                    detections_idx = trk_matched_bbox != 0
+                    detections_idx = detections_idx.flatten()
+                    # Hacky way to update only certain sensors
+                    # Hardcoded to out case in which x contains pos and vel for each pos
+                    H_pos = np.diag(detections_idx).astype(float)
+                    H_vel = np.zeros(H_pos.shape)
+                    H = np.hstack([H_pos, H_vel])
+                    # import ipdb; ipdb.set_trace()
+                    tracker.update(trk_matched_bbox, trk_debug_dict, H=H)
+                else:
                     trk_debug_dict = {
-                        'dist': dist_matrix[matched_det_idx, t][0],
+                        'dist': min(dist_matrix[:, t]),
                     }
-                    tracker.update(trk_matched_bbox, trk_debug_dict)
+                    tracker.debug_dict.update(trk_debug_dict)
+
 
             # Create and initialize new trackers for unmatched detected objects.
             for i in unmatched_dets:
@@ -86,7 +94,8 @@ class PoseTracker:
                 'age': tracker.age,
                 'hit_streak': tracker.hit_streak,
                 'time_since_update': tracker.time_since_update,
-                'score': tracker.debug_dict.get('score'),
+                'debug': tracker.debug_dict,
+                'last_detection': tracker.last_detection,
             }
 
             if (tracker.time_since_update < 1 and
