@@ -49,6 +49,7 @@ def main():
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     fps = cap.get(cv2.CAP_PROP_FPS)
+    delta_t = 1 / fps
     frame_counter = 0
     video_progress_bar = click.progressbar(length=total_frames)
 
@@ -91,9 +92,6 @@ def main():
 
             # Get predictions (it returns unmatched_people only for debugging)
             predicted_people, unmatched_people = tracker.update(detected_people)
-
-            prior_time, posterior_time = posterior_time, time.time()
-            delta_t = posterior_time - prior_time
 
             # Draw each person
             # Predicted
