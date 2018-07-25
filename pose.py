@@ -14,11 +14,14 @@ DEBUG = True if len(sys.argv) > 3 and sys.argv[3] else False
 BODY_PART_KEYS = ["nose", "neck", "rshoulder", "relbow", "rwrist", "lshoulder", "lelbow", "lwrist",
                   "midhip", "rhip", "rknee", "rankle", "lhip", "lknee", "lankle", "reye", "leye",
                   "rear", "lear", "lbigtoe", "lsmalltoe", "lheel", "rbigtoe", "rsmalltoe", "rheel"]
-# Using only these 4 because dissapearing limbs don't play well with kalman filters
+# Using only these 4 because dissapearing limbs don't play well with kalman filters :-(
 BODY_PARTS_TO_TRACK_KEYS = ['nose', 'reye', 'leye', 'midhip']
 ATTENTION_TIMERS = {}
 INTERFRAME_DISTANCE_THRESHOLD = 250
 MIN_TRIANGLE_AREA = 200
+THRESH_FRACTION = 1/4
+MATCH_INERTIA_BOT = 2
+MATCH_INERTIA_TOP = 4
 
 def main():
     # Set up network
@@ -95,7 +98,10 @@ def main():
             # Draw each person
             # Predicted
             for predicted_person in predicted_people:
-                draw_body_parts(frame, predicted_person, [('nose', 'reye', 'leye')], (0, 255, 0), 3, delta_t, predicted_person.get('debug'))
+                draw_body_parts(frame, predicted_person, [('nose', 'reye', 'leye')], (255, 255, 255), 3, delta_t, predicted_person.get('debug'))
+
+            for person in ATTENTION_TIMERS.values():
+                if person.get('matches') and person['matches'] > 0: person['matches'] -= 1
 
             if DEBUG:
                 # Unmatched
@@ -104,7 +110,7 @@ def main():
 
                 # Detected
                 for detected_person_pose in detected_people:
-                    draw_body_parts(frame, {'last_detection': detected_person_pose}, [('nose', 'reye', 'leye')], (255, 255, 255), 1)
+                    draw_body_parts(frame, {'last_detection': detected_person_pose}, [('nose', 'reye', 'leye')], (0, 0, 0), 1)
         
             # cv2.imshow("output", frame)
             if output_video_path:
@@ -125,29 +131,47 @@ def main():
 def draw_body_parts(frame, person, triangles, color, width, delta_t=None, debug_=None):
     body_parts = {key: value for key, value in zip(BODY_PARTS_TO_TRACK_KEYS, person['last_detection'].astype(int))}
 
-    thresh_fraction = 1/4
     for mid, right, left in triangles:
-        mid = tuple(body_parts[mid])
-        right = tuple(body_parts[right])
-        left = tuple(body_parts[left])
+        mid = body_parts[mid]
+        right = body_parts[right]
+        left = body_parts[left]
+        if all([mid.all(), right.all(), left.all()]):
+            mid_proy = tuple(proyect_point_onto_line(left, right, mid).astype(int))
+            mid = tuple(mid)
+            right = tuple(right)
+            left = tuple(left)
 
-        # Draw triangle
-        if all(mid) and all(right) and all(left):
+            # Calculate face features for match rules
             eye_x_dist = abs(right[0] - left[0])
-            # Check that nose is in mid fraction of face, so they are looking straight ahead
-            right_thresh = right[0] + eye_x_dist * thresh_fraction
-            left_thresh = left[0] - eye_x_dist * thresh_fraction
+            right_thresh = right[0] + eye_x_dist * THRESH_FRACTION
+            left_thresh = left[0] - eye_x_dist * THRESH_FRACTION 
             triangle_area = (
                 (max(left[0], mid[0], right[0]) - min(left[0], mid[0], right[0])) *
                 (max(left[1], mid[1], right[1]) - min(left[1], mid[1], right[1]))
             ) / 2
-            if right_thresh < mid[0] < left_thresh and person.get('id') and triangle_area > MIN_TRIANGLE_AREA:
+
+            # Check that nose is in mid fraction of face, so they are looking straight ahead
+            sufficient_match_cond_1 = (right_thresh < mid_proy[0] < left_thresh and
+                                       person.get('id') and
+                                       triangle_area > MIN_TRIANGLE_AREA)
+            # Check that face has sufficient match inertia so we continue matching even though it's not actually looking at the camera
+            try:
+                sufficient_match_cond_2 = ATTENTION_TIMERS[person['id']]['matches'] > MATCH_INERTIA_BOT
+            except KeyError:
+                sufficient_match_cond_2 = False
+
+            # Match logic
+            if sufficient_match_cond_1 or sufficient_match_cond_2:
                 if person['id'] in ATTENTION_TIMERS.keys():
-                    ATTENTION_TIMERS[person['id']] += delta_t
+                    ATTENTION_TIMERS[person['id']]['time'] += delta_t
+                    if ATTENTION_TIMERS[person['id']]['matches'] <= MATCH_INERTIA_TOP and sufficient_match_cond_1:
+                        ATTENTION_TIMERS[person['id']]['matches'] += 2
                 else:
-                    ATTENTION_TIMERS[person['id']] = 0
-                text = "{:.2f}".format(ATTENTION_TIMERS[person['id']])
-                cv2.putText(frame, text, (mid[0] - 20, mid[1] + 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv2.LINE_AA)
+                    ATTENTION_TIMERS[person['id']] = {'time': 0, 'matches': 0}
+                if ATTENTION_TIMERS[person['id']]['matches'] > MATCH_INERTIA_BOT:
+                    color = (0, 255, 0)  # Use color green when person is looking at us
+                    text = "{:.2f}".format(ATTENTION_TIMERS[person['id']]['time'])
+                    cv2.putText(frame, text, (mid[0] - 20, mid[1] + 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv2.LINE_AA)
 
             # Draw triangle
             cv2.line(frame, mid, right, color, width)
@@ -165,6 +189,16 @@ def draw_body_parts(frame, person, triangles, color, width, delta_t=None, debug_
                 if debug_ is not None:
                     dist = debug_.get('dist') if debug_.get('dist') else 0
                     cv2.putText(frame, str(int(dist)), (mid[0] - 10, mid[1] + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv2.LINE_AA)
+
+                try:
+                    cv2.putText(frame, str(ATTENTION_TIMERS[person['id']]['matches']), (mid[0] + 10, mid[1] - 30), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2, cv2.LINE_AA)
+                except KeyError:
+                    pass
+
+def proyect_point_onto_line(a, b, p):
+    ap = p - a
+    ab = b - a
+    return a + np.dot(ap,ab) / np.dot(ab,ab) * ab
 
 
 if __name__ == '__main__':
