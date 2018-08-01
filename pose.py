@@ -10,7 +10,7 @@ from openpose import *
 
 
 # Globals
-DEBUG = True if len(sys.argv) > 3 and sys.argv[3] else False
+DEBUG = True if len(sys.argv) > 3 and sys.argv[3] == '--debug' else False
 BODY_PART_KEYS = ["nose", "neck", "rshoulder", "relbow", "rwrist", "lshoulder", "lelbow", "lwrist",
                   "midhip", "rhip", "rknee", "rankle", "lhip", "lknee", "lankle", "reye", "leye",
                   "rear", "lear", "lbigtoe", "lsmalltoe", "lheel", "rbigtoe", "rsmalltoe", "rheel"]
@@ -22,6 +22,11 @@ MIN_TRIANGLE_AREA = 200
 THRESH_FRACTION = 1/4
 MATCH_INERTIA_BOT = 2
 MATCH_INERTIA_TOP = 4
+COLORS = {'green': (0, 128, 0), 'white': (255, 255, 255), 'olive': (0, 128, 128),
+          'black': (0, 0, 0), 'navy': (128, 0, 0), 'red': (0, 0, 255), 'maroon': (0, 0, 128),
+          'grey': (128, 128, 128), 'purple': (128, 0, 128), 'yellow': (0, 255, 255),
+          'lime': (0, 255, 0), 'fuchsia': (255, 0, 255), 'aqua': (255, 255, 0),
+          'blue': (255, 0, 0), 'teal': (128, 128, 0), 'silver': (192, 192, 192)}
 
 def main():
     # Set up network
@@ -96,7 +101,7 @@ def main():
             # Draw each person
             # Predicted
             for predicted_person in predicted_people:
-                draw_body_parts(frame, predicted_person, [('nose', 'reye', 'leye')], (255, 255, 255), 3, delta_t, predicted_person.get('debug'))
+                draw_body_parts(frame, predicted_person, [('nose', 'reye', 'leye')], COLORS['white'], 3, delta_t, predicted_person.get('debug'))
 
             for person in ATTENTION_TIMERS.values():
                 if person.get('matches') and person['matches'] > 0: person['matches'] -= 1
@@ -104,11 +109,11 @@ def main():
             if DEBUG:
                 # Unmatched
                 for unmatched_person in unmatched_people:
-                    draw_body_parts(frame, unmatched_person, [('nose', 'reye', 'leye')], (255, 0, 0), 1, delta_t, unmatched_person.get('debug'))
+                    draw_body_parts(frame, unmatched_person, [('nose', 'reye', 'leye')], COLORS['red'], 1, delta_t, unmatched_person.get('debug'))
 
                 # Detected
                 for detected_person_pose in detected_people:
-                    draw_body_parts(frame, {'last_detection': detected_person_pose}, [('nose', 'reye', 'leye')], (0, 0, 0), 1)
+                    draw_body_parts(frame, {'last_detection': detected_person_pose}, [('nose', 'reye', 'leye')], COLORS['black'], 1)
         
             # cv2.imshow("output", frame)
             if output_video_path:
@@ -167,7 +172,7 @@ def draw_body_parts(frame, person, triangles, color, width, delta_t=None, debug_
                 else:
                     ATTENTION_TIMERS[person['id']] = {'time': 0, 'matches': 0}
                 if ATTENTION_TIMERS[person['id']]['matches'] > MATCH_INERTIA_BOT:
-                    color = (0, 255, 0)  # Use color green when person is looking at us
+                    color = COLORS['green']  # Use color green when person is looking at us
                     text = "{:.2f}".format(ATTENTION_TIMERS[person['id']]['time'])
                     cv2.putText(frame, text, (mid[0] - 20, mid[1] + 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv2.LINE_AA)
 
@@ -181,7 +186,7 @@ def draw_body_parts(frame, person, triangles, color, width, delta_t=None, debug_
             if DEBUG:
                 id = person.get('id')
                 if id is not None:
-                    cv2.putText(frame, str(id), mid, cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 2, cv2.LINE_AA)
+                    cv2.putText(frame, str(id), mid, cv2.FONT_HERSHEY_SIMPLEX, 2, COLORS['black'], 2, cv2.LINE_AA)
 
                 # Draw person's debug dict info
                 if debug_ is not None:
@@ -189,9 +194,10 @@ def draw_body_parts(frame, person, triangles, color, width, delta_t=None, debug_
                     cv2.putText(frame, str(int(dist)), (mid[0] - 10, mid[1] + 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv2.LINE_AA)
 
                 try:
-                    cv2.putText(frame, str(ATTENTION_TIMERS[person['id']]['matches']), (mid[0] + 10, mid[1] - 30), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2, cv2.LINE_AA)
+                    cv2.putText(frame, str(ATTENTION_TIMERS[person['id']]['matches']), (mid[0] + 10, mid[1] - 30), cv2.FONT_HERSHEY_SIMPLEX, 2, COLORS['white'], 2, cv2.LINE_AA)
                 except KeyError:
                     pass
+
 
 def proyect_point_onto_line(a, b, p):
     ap = p - a
